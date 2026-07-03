@@ -1,0 +1,57 @@
+[
+  {
+    "path": "src/payments/state_machine.py",
+    "co_commit_count": 8,
+    "last_co_modified": "2024-11-14T16:45:00Z"
+  },
+  {
+    "path": "tests/test_gateway.py",
+    "co_commit_count": 7,
+    "last_co_modified": "2024-11-15T09:32:00Z"
+  },
+  {
+    "path": "src/payments/repository.py",
+    "co_commit_count": 6,
+    "last_co_modified": "2024-11-13T11:20:00Z"
+  },
+  {
+    "path": "src/payments/models.py",
+    "co_commit_count": 5,
+    "last_co_modified": "2024-11-12T14:00:00Z"
+  },
+  {
+    "path": "src/payments/redis_client.py",
+    "co_commit_count": 5,
+    "last_co_modified": "2024-11-09T08:15:00Z"
+  },
+  {
+    "path": "tests/integration/test_concurrent_payments.py",
+    "co_commit_count": 4,
+    "last_co_modified": "2024-11-10T15:45:00Z"
+  },
+  {
+    "path": "src/auth/middleware.py",
+    "co_commit_count": 3,
+    "last_co_modified": "2024-11-08T13:00:00Z"
+  },
+  {
+    "path": "docs/adr/017-retry-strategy.md",
+    "co_commit_count": 3,
+    "last_co_modified": "2024-11-11T10:30:00Z"
+  },
+  {
+    "path": "src/payments/webhook_handler.py",
+    "co_commit_count": 2,
+    "last_co_modified": "2024-11-07T09:00:00Z"
+  },
+  {
+    "path": "config/payment_config.yaml",
+    "co_commit_count": 2,
+    "last_co_modified": "2024-11-06T11:00:00Z"
+  },
+  {
+    "path": "src/payments/notifications.py",
+    "co_commit_count": 1,
+    "last_co_modified": "2024-11-05T14:00:00Z"
+  }
+]

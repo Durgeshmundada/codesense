@@ -1,0 +1,97 @@
+[
+  {
+    "number": 142,
+    "title": "Payment gateway returns 503 during peak hours causing lost transactions",
+    "body": "## Description\n\nDuring peak traffic (usually 11am-2pm EST), the Stripe gateway intermittently returns HTTP 503. Our current implementation treats this as a permanent failure and marks the payment as failed.\n\n## Expected Behavior\n\nTransient 503 errors should be retried with backoff before marking payment as failed.\n\n## Impact\n\nWe're losing approximately 2-3% of transactions during peak hours. Customer support is receiving 15+ tickets/day about failed payments that succeed on manual retry.\n\n## Acceptance Criteria\n\n- [ ] Retry up to 3 times with exponential backoff\n- [ ] Add jitter to prevent thundering herd\n- [ ] Log each retry attempt for observability\n- [ ] Only mark as failed after all retries exhausted",
+    "author": "product-team",
+    "state": "closed",
+    "comments": [
+      {
+        "author": "alice.chen",
+        "body": "I've confirmed the 503s are transient — they resolve within 2-5 seconds. Exponential backoff with base 2s should handle this well. Will also add a jitter of 0-1s to avoid retry storms.",
+        "timestamp": "2024-11-12T10:00:00Z"
+      },
+      {
+        "author": "bob.martinez",
+        "body": "Should we consider a circuit breaker instead? If the gateway is consistently failing, we don't want to keep hammering it.",
+        "timestamp": "2024-11-12T11:30:00Z"
+      },
+      {
+        "author": "alice.chen",
+        "body": "Good point, but the failures are isolated per-request, not systemic. A circuit breaker would block healthy requests. Documented this decision in ADR-017.",
+        "timestamp": "2024-11-12T14:00:00Z"
+      }
+    ],
+    "labels": ["bug", "payments", "p1-critical"]
+  },
+  {
+    "number": 138,
+    "title": "Race condition: duplicate charges when payment retried concurrently",
+    "body": "## Description\n\nWhen a payment times out and the client retries, two workers can pick up the same payment simultaneously. Both see state='pending' and attempt to charge, resulting in a double charge.\n\n## Steps to Reproduce\n\n1. Submit payment request\n2. First request times out (but is still processing on backend)\n3. Client retries immediately\n4. Both the original and retry process the payment\n\n## Root Cause Analysis\n\nThe `process_payment` function reads state and charges in separate steps without any locking mechanism. TOCTOU vulnerability.\n\n## Proposed Solution\n\nAdd optimistic locking with a version counter on the payment record. The transition to 'processing' state should be atomic.",
+    "author": "alice.chen",
+    "state": "closed",
+    "comments": [
+      {
+        "author": "bob.martinez",
+        "body": "I think we should extract the state transitions into a proper state machine first. The current process_payment is doing too much — state management, side effects, and error handling all in one 200-line function.",
+        "timestamp": "2024-11-10T09:00:00Z"
+      },
+      {
+        "author": "carol.nguyen",
+        "body": "Agreed on the state machine extraction. Also, should we add idempotency keys from the client side? That way even if our internal locking fails, we have a second layer of protection.",
+        "timestamp": "2024-11-10T11:00:00Z"
+      },
+      {
+        "author": "alice.chen",
+        "body": "Both good ideas. I'll do the state machine refactor first (makes the locking fix cleaner), then add idempotency keys as a separate PR. Let's use Redis for idempotency storage with 24h TTL.",
+        "timestamp": "2024-11-10T14:30:00Z"
+      }
+    ],
+    "labels": ["bug", "payments", "race-condition", "p0-urgent"]
+  },
+  {
+    "number": 155,
+    "title": "Add payment webhook signature verification",
+    "body": "## Description\n\nWe currently accept all incoming webhook payloads without verifying the signature header. This means anyone who discovers our webhook endpoint could send fake payment confirmations.\n\n## Security Impact\n\nCritical — an attacker could mark payments as completed without actual money transfer.\n\n## Requirements\n\n- Verify HMAC-SHA256 signature on all incoming webhooks\n- Reject requests with missing or invalid signatures with 401\n- Add timing-safe comparison to prevent timing attacks",
+    "author": "security-team",
+    "state": "open",
+    "comments": [
+      {
+        "author": "dave.kim",
+        "body": "I'll handle this. We should use `hmac.compare_digest()` for the timing-safe comparison. Also need to handle the case where the webhook secret rotates — should we support multiple valid secrets during rotation?",
+        "timestamp": "2024-11-16T09:00:00Z"
+      }
+    ],
+    "labels": ["security", "payments", "p0-urgent"]
+  },
+  {
+    "number": 147,
+    "title": "Payment reconciliation report shows stale data",
+    "body": "## Description\n\nThe daily reconciliation report is reading from a read replica that's up to 30 seconds behind. During peak hours, this means recently completed payments show as 'processing', causing false alerts.\n\n## Proposed Fix\n\nRoute reconciliation queries to the primary database, or add a staleness threshold that waits for replication lag to settle before generating the report.",
+    "author": "ops-team",
+    "state": "open",
+    "comments": [
+      {
+        "author": "carol.nguyen",
+        "body": "We could add a `SELECT pg_last_wal_replay_lsn()` check before running the report. If lag > 5s, wait and retry. This avoids always hitting the primary.",
+        "timestamp": "2024-11-14T16:00:00Z"
+      }
+    ],
+    "labels": ["bug", "payments", "observability"]
+  },
+  {
+    "number": 131,
+    "title": "Refactor payment module to use dependency injection",
+    "body": "## Description\n\nThe payment gateway currently hard-codes its dependencies (Redis client, DB repository, state machine). This makes unit testing difficult — every test needs a full integration setup.\n\n## Proposal\n\nUse constructor injection for all dependencies. This also enables the mock source pattern for our CodeSense demo mode.",
+    "author": "bob.martinez",
+    "state": "closed",
+    "comments": [
+      {
+        "author": "alice.chen",
+        "body": "Done in PR #89. All payment classes now accept their dependencies via __init__. Test setup is much cleaner — just pass in mocks.",
+        "timestamp": "2024-11-08T10:00:00Z"
+      }
+    ],
+    "labels": ["refactor", "payments", "testing"]
+  }
+]

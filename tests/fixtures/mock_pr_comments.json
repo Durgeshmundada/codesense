@@ -1,0 +1,66 @@
+[
+  {
+    "pr_number": 91,
+    "file_path": "src/payments/gateway.py",
+    "line_number": 52,
+    "body": "The backoff calculation looks correct, but I'd add a cap here. If max_retries is ever increased, 2^10 = 1024 seconds is way too long. Something like `min(2 ** attempt, 60)` would be safer.",
+    "author": "bob.martinez",
+    "timestamp": "2024-11-15T10:00:00Z"
+  },
+  {
+    "pr_number": 91,
+    "file_path": "src/payments/gateway.py",
+    "line_number": 58,
+    "body": "Nice use of jitter! One thought: `random.uniform(0, 1)` uses the global RNG which isn't great for testing. Consider injecting a random source or at least using a seeded instance for deterministic tests.",
+    "author": "carol.nguyen",
+    "timestamp": "2024-11-15T10:15:00Z"
+  },
+  {
+    "pr_number": 89,
+    "file_path": "src/payments/gateway.py",
+    "line_number": 15,
+    "body": "Love the state machine extraction. One concern: the VALID_TRANSITIONS dict allows 'processing' → 'pending' which means a failed charge can go back to pending for retry. Is that intentional? Feels like it could cause loops if retry logic isn't careful.",
+    "author": "dave.kim",
+    "timestamp": "2024-11-14T17:00:00Z"
+  },
+  {
+    "pr_number": 89,
+    "file_path": "src/payments/state_machine.py",
+    "line_number": 8,
+    "body": "Should we add a `max_transitions` counter to prevent infinite state loops? If a payment bounces between pending and processing more than N times, it should be flagged for manual review.",
+    "author": "alice.chen",
+    "timestamp": "2024-11-14T17:30:00Z"
+  },
+  {
+    "pr_number": 87,
+    "file_path": "src/payments/gateway.py",
+    "line_number": 80,
+    "body": "The optimistic locking approach is sound, but `get_with_lock` is misleading — it's not a pessimistic lock, it's a version check. Consider renaming to `get_with_version` or `get_for_update` to match the pattern.",
+    "author": "bob.martinez",
+    "timestamp": "2024-11-13T12:00:00Z"
+  },
+  {
+    "pr_number": 87,
+    "file_path": "src/payments/repository.py",
+    "line_number": 34,
+    "body": "What happens if the version check fails? Right now it silently returns None. I think we should raise a ConcurrentModificationError so callers can handle it explicitly — either retry or abort.",
+    "author": "carol.nguyen",
+    "timestamp": "2024-11-13T12:30:00Z"
+  },
+  {
+    "pr_number": 85,
+    "file_path": "src/payments/gateway.py",
+    "line_number": 95,
+    "body": "I'm not convinced we need both idempotency keys AND optimistic locking. They solve the same problem at different layers. The idempotency key is client-facing (network retries), while the lock is internal (worker races). Both are valuable but let's document why we need both to avoid future cleanup attempts.",
+    "author": "dave.kim",
+    "timestamp": "2024-11-12T15:00:00Z"
+  },
+  {
+    "pr_number": 85,
+    "file_path": "src/payments/redis_client.py",
+    "line_number": 5,
+    "body": "24h TTL for idempotency keys seems generous. Most gateway timeouts resolve in <30s. Could we use 1h to reduce Redis memory pressure? Or is 24h to cover the case where a customer retries hours later?",
+    "author": "alice.chen",
+    "timestamp": "2024-11-12T15:30:00Z"
+  }
+]

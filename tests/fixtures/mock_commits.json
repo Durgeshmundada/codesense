@@ -1,0 +1,66 @@
+[
+  {
+    "sha": "a1b2c3d4e5f6789012345678901234567890abcd",
+    "message": "fix(payments): add retry logic for transient gateway failures\n\nThe payment gateway occasionally returns 503 during peak hours.\nThis adds exponential backoff with jitter to handle transient\nfailures without dropping customer payments.\n\nFixes #142",
+    "author": "alice.chen",
+    "timestamp": "2024-11-15T09:32:00Z",
+    "diff": "--- a/src/payments/gateway.py\n+++ b/src/payments/gateway.py\n@@ -45,6 +45,22 @@\n+    async def _retry_with_backoff(self, operation, max_retries=3):\n+        for attempt in range(max_retries):\n+            try:\n+                return await operation()\n+            except GatewayTimeoutError:\n+                if attempt == max_retries - 1:\n+                    raise\n+                wait = (2 ** attempt) + random.uniform(0, 1)\n+                await asyncio.sleep(wait)",
+    "files_changed": ["src/payments/gateway.py", "tests/test_gateway.py"]
+  },
+  {
+    "sha": "b2c3d4e5f67890123456789012345678901abcde",
+    "message": "refactor(payments): extract payment state machine from process_payment\n\nThe process_payment function was 200+ lines handling both state\ntransitions and side effects. Extracted a PaymentStateMachine class\nto separate concerns and make the race condition fix easier.\n\nRelated: #138, #142",
+    "author": "bob.martinez",
+    "timestamp": "2024-11-14T16:45:00Z",
+    "diff": "--- a/src/payments/gateway.py\n+++ b/src/payments/gateway.py\n@@ -12,0 +13,35 @@\n+class PaymentStateMachine:\n+    VALID_TRANSITIONS = {\n+        'pending': ['processing', 'cancelled'],\n+        'processing': ['completed', 'failed', 'pending'],\n+        'failed': ['pending', 'cancelled'],\n+    }\n+\n+    def transition(self, current: str, target: str) -> bool:\n+        return target in self.VALID_TRANSITIONS.get(current, [])",
+    "files_changed": ["src/payments/gateway.py", "src/payments/state_machine.py", "tests/test_state_machine.py"]
+  },
+  {
+    "sha": "c3d4e5f678901234567890123456789012abcdef",
+    "message": "fix(payments): prevent duplicate charge on concurrent retry\n\nRace condition: two threads could both see state='pending' and\nattempt to charge. Added optimistic locking with version counter\nto ensure only one thread wins the transition.\n\nFixes #138",
+    "author": "alice.chen",
+    "timestamp": "2024-11-13T11:20:00Z",
+    "diff": "--- a/src/payments/gateway.py\n+++ b/src/payments/gateway.py\n@@ -78,4 +78,12 @@\n-    def process_payment(self, payment_id: str):\n-        payment = self.repo.get(payment_id)\n-        if payment.state == 'pending':\n-            self._charge(payment)\n+    def process_payment(self, payment_id: str):\n+        payment = self.repo.get_with_lock(payment_id)\n+        if not self.state_machine.transition(payment.state, 'processing'):\n+            raise InvalidStateTransition(payment.state, 'processing')\n+        payment.version += 1\n+        try:\n+            self._charge(payment)\n+        except Exception:\n+            self.state_machine.transition(payment.state, 'failed')\n+            raise",
+    "files_changed": ["src/payments/gateway.py", "src/payments/repository.py"]
+  },
+  {
+    "sha": "d4e5f6789012345678901234567890123abcdefg",
+    "message": "feat(payments): add idempotency key support for payment requests\n\nClients can now pass an idempotency key to prevent duplicate\ncharges on network retries. Keys are stored in Redis with 24h TTL.",
+    "author": "carol.nguyen",
+    "timestamp": "2024-11-12T14:00:00Z",
+    "diff": "--- a/src/payments/gateway.py\n+++ b/src/payments/gateway.py\n@@ -30,0 +31,15 @@\n+    def _check_idempotency(self, key: str) -> Optional[PaymentResult]:\n+        cached = self.redis.get(f'idem:{key}')\n+        if cached:\n+            return PaymentResult.from_cache(cached)\n+        return None\n+\n+    def _store_idempotency(self, key: str, result: PaymentResult):\n+        self.redis.setex(f'idem:{key}', 86400, result.to_cache())",
+    "files_changed": ["src/payments/gateway.py", "src/payments/models.py", "src/payments/redis_client.py"]
+  },
+  {
+    "sha": "e5f67890123456789012345678901234abcdefgh",
+    "message": "docs(payments): document retry and idempotency design decisions\n\nADR-017: Why we chose exponential backoff over circuit breaker\nADR-018: Idempotency key strategy and TTL rationale",
+    "author": "bob.martinez",
+    "timestamp": "2024-11-11T10:30:00Z",
+    "diff": "--- /dev/null\n+++ b/docs/adr/017-retry-strategy.md\n@@ -0,0 +1,25 @@\n+# ADR-017: Payment Retry Strategy\n+\n+## Status: Accepted\n+\n+## Context\n+Payment gateway returns 503 during peak load.\n+\n+## Decision\n+Use exponential backoff with jitter (not circuit breaker)\n+because failures are transient and isolated per-request.",
+    "files_changed": ["docs/adr/017-retry-strategy.md", "docs/adr/018-idempotency.md"]
+  },
+  {
+    "sha": "f6789012345678901234567890123456abcdefghi",
+    "message": "test(payments): add integration tests for concurrent payment scenarios\n\nAdds tests that simulate multiple workers processing the same\npayment to verify the optimistic locking prevents double-charge.",
+    "author": "alice.chen",
+    "timestamp": "2024-11-10T15:45:00Z",
+    "diff": "--- /dev/null\n+++ b/tests/integration/test_concurrent_payments.py\n@@ -0,0 +1,40 @@\n+import asyncio\n+import pytest\n+\n+@pytest.mark.asyncio\n+async def test_concurrent_payment_no_double_charge():\n+    payment = create_test_payment(amount=99.99)\n+    results = await asyncio.gather(\n+        gateway.process_payment(payment.id),\n+        gateway.process_payment(payment.id),\n+        return_exceptions=True\n+    )\n+    successes = [r for r in results if not isinstance(r, Exception)]\n+    assert len(successes) == 1",
+    "files_changed": ["tests/integration/test_concurrent_payments.py"]
+  },
+  {
+    "sha": "789012345678901234567890123456789abcdefj",
+    "message": "perf(payments): batch Redis lookups for idempotency checks\n\nWhen processing bulk payment files, checking idempotency keys\none-by-one was adding 200ms+ latency. Using pipeline for batch.",
+    "author": "carol.nguyen",
+    "timestamp": "2024-11-09T08:15:00Z",
+    "diff": "--- a/src/payments/redis_client.py\n+++ b/src/payments/redis_client.py\n@@ -15,0 +16,10 @@\n+    def batch_get_idempotency(self, keys: list[str]) -> dict[str, Optional[str]]:\n+        pipe = self.redis.pipeline()\n+        for key in keys:\n+            pipe.get(f'idem:{key}')\n+        results = pipe.execute()\n+        return dict(zip(keys, results))",
+    "files_changed": ["src/payments/redis_client.py", "src/payments/gateway.py"]
+  },
+  {
+    "sha": "890123456789012345678901234567890abcdefk",
+    "message": "fix(auth): validate JWT expiry before payment processing\n\nPayments were being processed even after the user session expired,\nleading to orphaned charges that required manual reconciliation.",
+    "author": "dave.kim",
+    "timestamp": "2024-11-08T13:00:00Z",
+    "diff": "--- a/src/auth/middleware.py\n+++ b/src/auth/middleware.py\n@@ -22,2 +22,6 @@\n+    def validate_session(self, token: str) -> bool:\n+        payload = jwt.decode(token, self.secret, algorithms=['HS256'])\n+        if payload['exp'] < time.time():\n+            raise SessionExpiredError()\n+        return True",
+    "files_changed": ["src/auth/middleware.py", "src/payments/gateway.py"]
+  }
+]
